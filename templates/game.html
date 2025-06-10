@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hangman Game</title>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; }
+        #left { flex: 3; padding: 20px; }
+        #right { flex: 1; border-left: 1px solid #ccc; padding: 20px; }
+        #word { font-size: 24px; letter-spacing: 10px; }
+        #hangman { white-space: pre; font-family: monospace; }
+        #players { list-style-type: none; padding: 0; }
+        #guess-section { margin-top: 20px; }
+        pre.title {
+            font-family: monospace;
+            font-size: 16px;
+            line-height: 1.2;
+            margin-bottom: 20px;
+        }
+
+        /* Modal styles */
+        #gameModal {
+            display: none;
+            position: fixed;
+            z-index: 999;
+            left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.6);
+        }
+
+        #modalContent {
+            background-color: #fff;
+            margin: 15% auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 50%;
+            text-align: center;
+            font-size: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        #modalContent button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="left">
+        <pre class="title">
+ _                                              
+| |                                             
+| |__   __ _ _ __   __ _ _ __ ___   __ _ _ __   
+| '_ \ / _` | '_ \ / _` | '_ ` _ \ / _` | '_ \  
+| | | | (_| | | | | (_| | | | | | | (_| | | | | 
+|_| |_|\__,_|_| |_|\__, |_| |_| |_|\__,_|_| |_| 
+                    __/ |                      
+                   |___/                       
+        </pre>
+
+        <div id="lobby" style="display: none;">
+            <p>Waiting for host to start the game...</p>
+            <button id="startBtn" style="display: none;">Start Game</button>
+        </div>
+
+        <div id="game" style="display: none;">
+            <pre id="hangman"></pre>
+            <div id="word"></div>
+            <p>Wrong Letters: <span id="wrong"></span></p>
+            <p>Lives Left: <span id="lives"></span></p>
+            <p>Current Turn: <span id="turn"></span></p>
+            <div id="guess-section">
+                <input type="text" id="letter" maxlength="1">
+                <button onclick="makeGuess()">Guess</button>
+            </div>
+            <button id="resetBtn" style="display:none;">Reset Game</button>
+        </div>
+    </div>
+
+    <div id="right">
+        <h3>Players</h3>
+        <ul id="players"></ul>
+    </div>
+
+    <!-- Modal -->
+    <div id="gameModal">
+        <div id="modalContent">
+            <p id="modalMessage"></p>
+            <button onclick="closeModal()">OK</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const name = "{{ name }}";
+        const isHost = "{{ 'true' if host else 'false' }}";
+
+        document.getElementById('startBtn').style.display = isHost === "true" ? 'inline' : 'none';
+        document.getElementById('resetBtn').style.display = isHost === "true" ? 'inline' : 'none';
+
+        socket.emit('join', { name });
+
+        socket.on('player_list', data => {
+            const list = document.getElementById('players');
+            list.innerHTML = "";
+
+            const sortedPlayers = [...data.players];
+            sortedPlayers.sort((a, b) => (a === data.host ? -1 : b === data.host ? 1 : 0));
+
+            sortedPlayers.forEach(player => {
+                const li = document.createElement('li');
+                li.textContent = player + (data.host === player ? " (Host)" : "");
+                list.appendChild(li);
+            });
+
+            if (!document.getElementById('game').style.display || document.getElementById('game').style.display === 'none') {
+                document.getElementById('lobby').style.display = 'block';
+            }
+        });
+
+        document.getElementById('startBtn').onclick = () => {
+            socket.emit('start_game', { name });
+        };
+
+        document.getElementById('resetBtn').onclick = () => {
+            socket.emit('reset_game', { name });
+        };
+
+        socket.on('game_started', data => {
+            showGame(data);
+        });
+
+        socket.on('update_game', data => {
+            showGame(data);
+        });
+
+        socket.on('game_reset', data => {
+            showGame(data);
+        });
+
+        function showGame(data) {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('game').style.display = 'block';
+            document.getElementById('word').textContent = data.display_word.split('').join(' ');
+            document.getElementById('wrong').textContent = data.wrong_letters.join(', ');
+            document.getElementById('lives').textContent = data.lives;
+            document.getElementById('hangman').textContent = data.hangman_ascii;
+            document.getElementById('turn').textContent = data.turn || '-';
+
+            if (data.game_over) {
+                let msg = data.winner
+                    ? `🎉 Congratulations, ${data.winner} wins! The word was "${data.word}".`
+                    : `😢 Game Over! The word was "${data.word}".`;
+                showModal(msg);
+                document.getElementById('guess-section').style.display = 'none';
+            } else {
+                if (data.turn === name) {
+                    document.getElementById('guess-section').style.display = 'block';
+                } else {
+                    document.getElementById('guess-section').style.display = 'none';
+                }
+            }
+        }
+
+        function makeGuess() {
+            const letter = document.getElementById('letter').value;
+            if (letter) {
+                socket.emit('guess', { letter, name });
+                document.getElementById('letter').value = '';
+            }
+        }
+
+        function showModal(message) {
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('gameModal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('gameModal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
